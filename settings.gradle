@@ -1,0 +1,3 @@
+include  ':carboncopy-annotations', ':carboncopy', 'sample'
+
+rootProject.name = 'carboncopy-parent'
