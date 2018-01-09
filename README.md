@@ -14,13 +14,12 @@ public class MyDataClass {
 This will generate a POJO carbon copy of the above class, with getters and setters of all the fields of the original class
 
 ```java
-@CarbonCopy
 public class MyDataClassPOJO {
     ...
 }
 
 ```
-Easily convert between the source object and its copy using
+Easily convert between the source object and its copy using the auto generated **CarbonCopyConverter.convert** method
 
 ```java
 MyDataClass myDataClass;
