@@ -2,6 +2,7 @@ package carboncopy.annotations;
 
 
 import java.lang.reflect.Field;
+import java.util.Collection;
 
 /**
  * Utility method used for conversion

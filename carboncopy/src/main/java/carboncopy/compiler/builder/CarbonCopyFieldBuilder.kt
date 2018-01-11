@@ -4,19 +4,22 @@ import carboncopy.annotations.CarbonCopy
 import carboncopy.annotations.CarbonCopyAccessor
 import carboncopy.annotations.CarbonCopyRename
 import com.google.auto.common.MoreElements
-import com.squareup.javapoet.ClassName
-import com.squareup.javapoet.MethodSpec
-import com.squareup.javapoet.TypeName
-import com.squareup.javapoet.TypeSpec
+import com.squareup.javapoet.*
 import javax.lang.model.element.Element
 import javax.lang.model.element.ExecutableElement
 import javax.lang.model.element.Modifier
+import javax.lang.model.element.TypeElement
+import javax.lang.model.type.DeclaredType
+import javax.lang.model.type.TypeKind
+import javax.lang.model.type.TypeMirror
 
 /**
  * Adds a field and its gettter and setter to the [TypeSpec.Builder] class builder
  */
 class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private val classBuilder: TypeSpec.Builder, private val field: Element) {
 
+    private var genericTypeFound = false
+    private val genericPairs = mutableListOf<Pair<TypeMirror, TypeName>>()
     private val name = getFieldName(field)
     private val type = getFieldType(field)
     private val methodNameSuffix = name[0].toUpperCase() + if (name.length > 1) name.substring(1) else ""
@@ -68,15 +71,37 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
             val accessorName = getSourceAccessor(true)
             if (accessorName != null) {
                 var accessorMethodName = "source.$accessorName()"
-                val type = TypeName.get(field.asType())
-                if (!type.isPrimitive) {
-                    val fieldElement = bindingManager.getElement(type.toString())
-                    val ccAnnotation = fieldElement.getAnnotation(CarbonCopy::class.java)
+                val fieldType = TypeName.get(field.asType())
+                if (!fieldType.isPrimitive) {
+                    val fieldElement = bindingManager.getElement(fieldType.toString())
+                    val ccAnnotation = fieldElement?.getAnnotation(CarbonCopy::class.java)
                     if (ccAnnotation != null) {
                         accessorMethodName = "convert(source.$accessorName())"
                     }
                 }
-                methodBuilder.addStatement("copy.set$methodNameSuffix($accessorMethodName)")
+                if (genericTypeFound && type is ParameterizedTypeName) {
+                    val collectionGenericType = getGenericCollectionImplementationClass(type)
+                    if (collectionGenericType != null) {
+                        val mapType = genericPairs.size == 2
+                        methodBuilder.beginControlFlow("if ($accessorMethodName != null)")
+                        methodBuilder.addStatement("\$T ${field.simpleName} = new \$T()", collectionGenericType.first, ClassName.get("java.util", collectionGenericType.second.toString()))
+                        methodBuilder.beginControlFlow("for(\$T s:$accessorMethodName${if (mapType) ".keySet()" else ""})", genericPairs[0].first)
+                        if (!mapType) {
+                            //Collection type
+                            methodBuilder.addStatement("${field.simpleName}.add(convert(s))")
+                        } else {
+                            //Map type
+                            methodBuilder.addStatement("${field.simpleName}.put((\$T)convert((\$T)s), (\$T)convert((\$T)$accessorMethodName.get(s)))",
+                                    genericPairs[0].second, genericPairs[0].first,
+                                    genericPairs[1].second, genericPairs[1].first)
+                        }
+                        methodBuilder.endControlFlow()
+                        methodBuilder.addStatement("copy.set$methodNameSuffix(${field.simpleName})")
+                        methodBuilder.endControlFlow()
+                    }
+                } else {
+                    methodBuilder.addStatement("copy.set$methodNameSuffix($accessorMethodName)")
+                }
             } else {
                 methodBuilder.addStatement("\$T.copyField(source, \"$originalName\", copy, \"$name\")", ClassName.get("carboncopy.annotations", "CarbonCopyUtil"))
             }
@@ -95,15 +120,86 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
                 val type = TypeName.get(field.asType())
                 if (!type.isPrimitive) {
                     val fieldElement = bindingManager.getElement(type.toString())
-                    val ccAnnotation = fieldElement.getAnnotation(CarbonCopy::class.java)
+                    val ccAnnotation = fieldElement?.getAnnotation(CarbonCopy::class.java)
                     if (ccAnnotation != null) {
                         accessorMethodName = "convert(source.get$methodNameSuffix())"
                     }
                 }
-                methodBuilder.addStatement("copy.$accessorName($accessorMethodName)")
+
+                if (genericTypeFound && type is ParameterizedTypeName) {
+                    val collectionGenericType = getGenericCollectionImplementationClass(type)
+                    if (collectionGenericType != null) {
+                        val mapType = genericPairs.size == 2
+                        methodBuilder.beginControlFlow("if ($accessorMethodName != null)")
+                        methodBuilder.addStatement("\$T ${field.simpleName} = new \$T()", collectionGenericType.first, ClassName.get("java.util", collectionGenericType.second.toString()))
+                        methodBuilder.beginControlFlow("for(\$T s:$accessorMethodName${if (mapType) ".keySet()" else ""})", genericPairs[0].second)
+                        if (!mapType) {
+                            //Collection type
+                            methodBuilder.addStatement("${field.simpleName}.add(convert(s))")
+                        } else {
+                            //Map type
+                            methodBuilder.addStatement("${field.simpleName}.put((\$T)convert((\$T)s), (\$T)convert((\$T)$accessorMethodName.get(s)))",
+                                    genericPairs[0].first, genericPairs[0].second,
+                                    genericPairs[1].first, genericPairs[1].second)
+                        }
+                        methodBuilder.endControlFlow()
+                        methodBuilder.addStatement("copy.$accessorName(${field.simpleName})")
+                        methodBuilder.endControlFlow()
+                    }
+                } else {
+                    methodBuilder.addStatement("copy.$accessorName($accessorMethodName)")
+                }
             } else {
                 methodBuilder.addStatement("\$T.copyField(source, \"$name\", copy, \"$originalName\")", ClassName.get("carboncopy.annotations", "CarbonCopyUtil"))
             }
+        }
+    }
+
+    private fun getGenericCollectionImplementationClass(sourceType: ParameterizedTypeName): Pair<ParameterizedTypeName?, StringBuffer>? {
+        val genericPair = Pair(ParameterizedTypeName.get(
+                sourceType.rawType,
+                *sourceType.typeArguments.toTypedArray()),
+                StringBuffer())
+        return when (sourceType.rawType.simpleName()) {
+            "List", "ArrayList" -> {
+                genericPair.second.append("ArrayList")
+                return genericPair
+            }
+            "LinkedList" -> {
+                genericPair.second.append("LinkedList")
+                return genericPair
+            }
+            "Vector" -> {
+                genericPair.second.append("Vector")
+                return genericPair
+            }
+            "Stack" -> {
+                genericPair.second.append("Stack")
+                return genericPair
+            }
+            "Queue" -> {
+                genericPair.second.append("Queue")
+                return genericPair
+            }
+
+            "Set", "HashSet" -> {
+                genericPair.second.append("HashSet")
+                return genericPair
+            }
+            "TreeSet" -> {
+                genericPair.second.append("TreeSet")
+                return genericPair
+            }
+
+            "Map", "HashMap" -> {
+                genericPair.second.append("HashMap")
+                return genericPair
+            }
+            "Hashtable" -> {
+                genericPair.second.append("Hashtable")
+                return genericPair
+            }
+            else -> null
         }
     }
 
@@ -117,18 +213,43 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
      * Returns the mapped field name. Maps to CC type if the field type is @CarbonCopy type
      */
     private fun getFieldType(field: Element): TypeName {
-        val type = TypeName.get(field.asType())
+        val typeMirror = field.asType()
+        val type = TypeName.get(typeMirror)
         return if (!type.isPrimitive) {
-            val fieldElement = bindingManager.getElement(type.toString())
-            val ccAnnotation = fieldElement.getAnnotation(CarbonCopy::class.java)
-            if (ccAnnotation != null) {
-                ClassName.get(MoreElements.getPackage(fieldElement).qualifiedName.toString(), ccAnnotation.name)
+            getMappedType(typeMirror) ?: if (typeMirror is DeclaredType) {
+                typeMirror.typeArguments.forEach {
+                    val mappedTypeName: TypeName? = getMappedType(it)
+                    if (mappedTypeName != null) {
+                        genericTypeFound = true
+                    }
+                    genericPairs.add(Pair(it, mappedTypeName ?: TypeName.get(it)))
+                }
+
+                if (genericTypeFound) {
+                    return ParameterizedTypeName.get(
+                            ClassName.get(typeMirror.asElement() as TypeElement),
+                            *genericPairs.map { it.second }.toTypedArray())
+                }
+                type
             } else {
                 type
             }
         } else {
             type
         }
+    }
+
+    private fun getMappedType(typeMirror: TypeMirror): TypeName? {
+        val typeName = TypeName.get(typeMirror)
+        val element = bindingManager.getElement(typeName.toString())
+        val ccAnnotation = element?.getAnnotation(CarbonCopy::class.java)
+        if (ccAnnotation != null) {
+            val copyNameGiven: String? = ccAnnotation.name
+            val copyClassName = if (copyNameGiven.isNullOrEmpty()) element.simpleName.toString() + "POJO" else copyNameGiven!!
+            return ClassName.get(MoreElements.getPackage(element).qualifiedName.toString(), copyClassName)
+        }
+
+        return null
     }
 
     /**
@@ -142,12 +263,23 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
         return if (ccAccessorAnnotation != null) {
             if (getter) ccAccessorAnnotation.getter else ccAccessorAnnotation.setter
         } else {
-            var accessorName: String? = if (getter) "get$originalMethodNameSuffix" else "set$originalMethodNameSuffix"
-            if (bindingManager.classElement.enclosedElements.none { it is ExecutableElement && it.simpleName.toString() == accessorName }) {
-                accessorName = null
-            }
-            accessorName
+            getSourceAccessor(getter, bindingManager.classElement as TypeElement)
         }
+    }
+
+    /**
+     * Recursively find the accessor method if it exist
+     */
+    private fun getSourceAccessor(getter: Boolean, element: TypeElement): String? {
+        val accessorName: String? = if (getter) "get$originalMethodNameSuffix" else "set$originalMethodNameSuffix"
+        if (element.enclosedElements.none { it is ExecutableElement && it.simpleName.toString() == accessorName }) {
+            return if (element.superclass.kind != TypeKind.NONE) {
+                getSourceAccessor(getter, bindingManager.getElement(ClassName.get(element.superclass).toString()) as TypeElement)
+            } else {
+                null
+            }
+        }
+        return accessorName
     }
 
 }

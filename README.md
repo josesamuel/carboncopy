@@ -50,8 +50,8 @@ Gradle dependency
 ```groovy
 dependencies {
 	//Replace "api" with "compile" for pre AndroidStudio 3
-    api 'com.josesamuel:carboncopy-annotations:1.0.0'
-    annotationProcessor 'com.josesamuel: carboncopy:1.0.0'
+    api 'com.josesamuel:carboncopy-annotations:1.0.1'
+    annotationProcessor 'com.josesamuel:carboncopy:1.0.1'
 }
 ```
 

@@ -57,7 +57,7 @@ class CarbonCopyClassBuilder(private val bindingManager: BindingManager) {
     /**
      * Recursevely Visit extended elements
      */
-    private fun processFields(element: Element, elementVisitor: (member: Element) -> Unit) {
+    private fun processFields(element: Element?, elementVisitor: (member: Element) -> Unit) {
         if (element is TypeElement) {
             element.enclosedElements
                     .filter { it.kind == ElementKind.FIELD && it.getAnnotation(CarbonCopyExclude::class.java) == null }

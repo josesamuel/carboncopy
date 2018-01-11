@@ -67,7 +67,7 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
     /**
      * Returns a [Element] for the given class
      */
-    fun getElement(className: String): Element {
+    fun getElement(className: String): Element? {
         var filteredClassName = className
         val templateStart = className.indexOf('<')
         if (templateStart != -1) {
