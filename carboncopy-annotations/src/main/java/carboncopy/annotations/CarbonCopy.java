@@ -23,4 +23,9 @@ public @interface CarbonCopy {
      * By default this is the class name appended with POJO
      */
     String name() default "";
+
+    /**
+     * Array of fields to be ignored if any
+     */
+    String[] ignoredFields() default {};
 }

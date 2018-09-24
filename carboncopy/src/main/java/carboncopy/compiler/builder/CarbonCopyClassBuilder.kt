@@ -60,7 +60,10 @@ class CarbonCopyClassBuilder(private val bindingManager: BindingManager) {
     private fun processFields(element: Element?, elementVisitor: (member: Element) -> Unit) {
         if (element is TypeElement) {
             element.enclosedElements
-                    .filter { it.kind == ElementKind.FIELD && it.getAnnotation(CarbonCopyExclude::class.java) == null }
+                    .filter { it.kind == ElementKind.FIELD
+                            && it.getAnnotation(CarbonCopyExclude::class.java) == null
+                            && !bindingManager.ignoredFields.contains(it.simpleName.toString())
+                    }
                     .forEach { elementVisitor(it) }
 
             if (element.superclass.kind != TypeKind.NONE) {

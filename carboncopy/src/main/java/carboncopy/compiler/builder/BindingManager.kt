@@ -23,6 +23,7 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
 
     internal val packageName = MoreElements.getPackage(classElement).qualifiedName.toString()
     internal val originalClassName = classElement.simpleName.toString()
+    internal val ignoredFields = classElement.getAnnotation(CarbonCopy::class.java).ignoredFields
     private val copyNameGiven: String? = classElement.getAnnotation(CarbonCopy::class.java).name
     internal val copyClassName = if (copyNameGiven.isNullOrEmpty()) originalClassName + "POJO" else copyNameGiven!!
     internal val filer = processingEnvironment.filer
