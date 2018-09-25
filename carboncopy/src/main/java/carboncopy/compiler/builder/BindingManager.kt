@@ -24,6 +24,7 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
     internal val packageName = MoreElements.getPackage(classElement).qualifiedName.toString()
     internal val originalClassName = classElement.simpleName.toString()
     internal val ignoredFields = classElement.getAnnotation(CarbonCopy::class.java).ignoredFields
+    internal val generateSetters = classElement.getAnnotation(CarbonCopy::class.java).generateSetters
     private val copyNameGiven: String? = classElement.getAnnotation(CarbonCopy::class.java).name
     internal val copyClassName = if (copyNameGiven.isNullOrEmpty()) originalClassName + "POJO" else copyNameGiven!!
     internal val filer = processingEnvironment.filer
@@ -32,6 +33,7 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
     internal var copyToSourceMethodBuilder: MethodSpec.Builder? = null
     private val CONVERTER_METHOD_NAME = "convert"
     private val CONVERTER_METHOD_PARAMETER_NAME = "source"
+    internal var constructorBuilder = if (!generateSetters) MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC) else null
 
 
     /**
@@ -39,11 +41,11 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
      */
     fun generateCarbonCopy() {
         if (canCreateSourceInstance()) {
-            copyToSourceMethodBuilder = createConverterMethod(ClassName.get(classElement.asType()), ClassName.get(packageName, copyClassName), CONVERTER_METHOD_PARAMETER_NAME)
+            copyToSourceMethodBuilder = createConverterMethod(ClassName.get(classElement.asType()), ClassName.get(packageName, copyClassName), CONVERTER_METHOD_PARAMETER_NAME, false)
         } else {
             processingEnvironment.messager.printMessage(Diagnostic.Kind.WARNING, "No default constructor found for ${classElement.simpleName}")
         }
-        sourceToCopyMethodBuilder = createConverterMethod(ClassName.get(packageName, copyClassName), ClassName.get(classElement.asType()), CONVERTER_METHOD_PARAMETER_NAME)
+        sourceToCopyMethodBuilder = createConverterMethod(ClassName.get(packageName, copyClassName), ClassName.get(classElement.asType()), CONVERTER_METHOD_PARAMETER_NAME, !generateSetters)
         val carbonCopyBuilder = CarbonCopyClassBuilder(this)
         carbonCopyBuilder.build()
 
@@ -56,13 +58,20 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
     /**
      * Create the covert method for this class
      */
-    private fun createConverterMethod(returnType: TypeName, parameterType: TypeName, parameterName: String) =
-            MethodSpec.methodBuilder(CONVERTER_METHOD_NAME)
-                    .returns(returnType)
-                    .addParameter(parameterType, parameterName)
-                    .addModifiers(Modifier.STATIC, Modifier.PUBLIC)
-                    .addJavadoc("Converts {@link \$T} -> {@link \$T}\n", parameterType, returnType)
-                    .addStatement("\$T copy = new $returnType()", returnType)
+    private fun createConverterMethod(returnType: TypeName, parameterType: TypeName, parameterName: String, constructorBuilder: Boolean): MethodSpec.Builder {
+        var methodBuilder = MethodSpec.methodBuilder(CONVERTER_METHOD_NAME)
+                .returns(returnType)
+                .addParameter(parameterType, parameterName)
+                .addModifiers(Modifier.STATIC, Modifier.PUBLIC)
+                .addJavadoc("Converts {@link \$T} -> {@link \$T}\n", parameterType, returnType)
+
+        methodBuilder = if (!constructorBuilder) {
+            methodBuilder.addStatement("\$T copy = new $returnType()", returnType)
+        } else {
+            methodBuilder.addCode("\$T copy = new $returnType(", returnType)
+        }
+        return methodBuilder
+    }
 
 
     /**
@@ -84,6 +93,10 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
                         && it.modifiers.contains(Modifier.PUBLIC)
                         && it.parameters.isEmpty()
             }
+
+    fun fail(string: String) {
+        processingEnvironment.messager.printMessage(Diagnostic.Kind.ERROR, string);
+    }
 
 
 }

@@ -30,6 +30,7 @@ public class SampleClass extends BaseClass {
     private Hashtable<SampleClass, SampleClass2> hashTableOfSampleClassToSampleClass2;
 
 
+
     public int getIntData() {
         return intData;
     }

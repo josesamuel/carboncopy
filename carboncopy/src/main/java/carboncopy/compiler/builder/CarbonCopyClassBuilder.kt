@@ -2,6 +2,7 @@ package carboncopy.compiler.builder
 
 import carboncopy.annotations.CarbonCopyExclude
 import com.squareup.javapoet.JavaFile
+import com.squareup.javapoet.MethodSpec
 import com.squareup.javapoet.TypeSpec
 import javax.lang.model.element.Element
 import javax.lang.model.element.ElementKind
@@ -16,6 +17,7 @@ import javax.lang.model.type.TypeKind
  */
 class CarbonCopyClassBuilder(private val bindingManager: BindingManager) {
 
+    var fieldCount = 0
 
     /**
      * Generate the carbon copy class
@@ -27,6 +29,10 @@ class CarbonCopyClassBuilder(private val bindingManager: BindingManager) {
 
         addJavaDoc(classBuilder)
         addFields(classBuilder)
+
+        bindingManager.constructorBuilder?.let {
+            classBuilder.addMethod(it.build())
+        }
 
         JavaFile.builder(bindingManager.packageName, classBuilder.build()).build().writeTo(bindingManager.filer)
     }
@@ -44,7 +50,14 @@ class CarbonCopyClassBuilder(private val bindingManager: BindingManager) {
      * Add the fields
      */
     private fun addFields(classBuilder: TypeSpec.Builder) {
-        processFields({ CarbonCopyFieldBuilder(bindingManager, classBuilder, it).build() })
+        fieldCount = 0;
+        processFields({
+            CarbonCopyFieldBuilder(bindingManager, classBuilder, it, fieldCount).build()
+            fieldCount++
+        })
+        if(!bindingManager.generateSetters){
+            bindingManager.sourceToCopyMethodBuilder?.addCode(");\n")
+        }
     }
 
     /**

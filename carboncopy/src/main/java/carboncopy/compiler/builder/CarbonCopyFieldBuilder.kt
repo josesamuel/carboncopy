@@ -16,7 +16,7 @@ import javax.lang.model.type.TypeMirror
 /**
  * Adds a field and its gettter and setter to the [TypeSpec.Builder] class builder
  */
-class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private val classBuilder: TypeSpec.Builder, private val field: Element) {
+class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private val classBuilder: TypeSpec.Builder, private val field: Element, private val fieldCount: Int) {
 
     private var genericTypeFound = false
     private val genericPairs = mutableListOf<Pair<TypeMirror, TypeName>>()
@@ -33,10 +33,18 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
     fun build() {
         classBuilder.addField(type, name, Modifier.PRIVATE)
         addGetter(classBuilder, name, type)
-        addSetter(classBuilder, name, type)
+        if (bindingManager.generateSetters) {
+            addSetter(classBuilder, name, type)
+            addSourceToCopyConversion()
+        } else {
+            bindingManager.constructorBuilder
+                    ?.addParameter(type, name)
+                    ?.addStatement("this.$name = $name")
 
-        addSourceToCopyConversion()
+            addSourceToCopyConstructorConversion()
+        }
         addCopyToSourceConversion()
+
     }
 
     /**
@@ -107,6 +115,35 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
             }
         }
     }
+
+    /**
+     * Add the statements for the source -> copy converter for this field
+     */
+    private fun addSourceToCopyConstructorConversion() {
+        val methodBuilder = bindingManager.sourceToCopyMethodBuilder
+        if (methodBuilder != null) {
+            val accessorName = getSourceAccessor(true)
+            if (accessorName != null) {
+                var accessorMethodName = "source.$accessorName()"
+                val fieldType = TypeName.get(field.asType())
+                if (!fieldType.isPrimitive) {
+                    val fieldElement = bindingManager.getElement(fieldType.toString())
+                    val ccAnnotation = fieldElement?.getAnnotation(CarbonCopy::class.java)
+                    if (ccAnnotation != null) {
+                        accessorMethodName = "convert(source.$accessorName())"
+                    }
+                }
+                if (fieldCount > 0) {
+                    methodBuilder.addCode(", ")
+                }
+                methodBuilder.addCode("$accessorMethodName")
+
+            } else {
+                bindingManager.fail("NO getter found for $name")
+            }
+        }
+    }
+
 
     /**
      * Add the statements for the copy -> source converter for this field
@@ -207,7 +244,8 @@ class CarbonCopyFieldBuilder(private val bindingManager: BindingManager, private
     /**
      * Returns the mapped field name
      */
-    private fun getFieldName(field: Element) = field.getAnnotation(CarbonCopyRename::class.java)?.name ?: field.simpleName.toString()
+    private fun getFieldName(field: Element) = field.getAnnotation(CarbonCopyRename::class.java)?.name
+            ?: field.simpleName.toString()
 
     /**
      * Returns the mapped field name. Maps to CC type if the field type is @CarbonCopy type

@@ -26,6 +26,14 @@ public @interface CarbonCopy {
 
     /**
      * Array of fields to be ignored if any
+     * This can also be specified using {@link CarbonCopyAccessor}
      */
     String[] ignoredFields() default {};
+
+    /**
+     * Whether to add setter method to the generated copy.
+     * Default true.
+     * If set to false, instead of empty default constructor, one that accepts all the fields will be generated
+     */
+    boolean generateSetters() default true;
 }
