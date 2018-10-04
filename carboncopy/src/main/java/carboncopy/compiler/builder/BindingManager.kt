@@ -65,6 +65,10 @@ class BindingManager(private val processingEnvironment: ProcessingEnvironment, v
                 .addModifiers(Modifier.STATIC, Modifier.PUBLIC)
                 .addJavadoc("Converts {@link \$T} -> {@link \$T}\n", parameterType, returnType)
 
+        methodBuilder.beginControlFlow("if ($parameterName == null)")
+        methodBuilder.addStatement("return null")
+        methodBuilder.endControlFlow()
+
         methodBuilder = if (!constructorBuilder) {
             methodBuilder.addStatement("\$T copy = new $returnType()", returnType)
         } else {
